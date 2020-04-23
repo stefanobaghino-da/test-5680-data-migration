@@ -1,0 +1,13 @@
+sdk-version: 1.0.0
+name: test-5680-data-migration
+source: daml
+parties:
+  - alice
+  - bob
+version: 0.0.1
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+sandbox-options:
+  - --wall-clock-time

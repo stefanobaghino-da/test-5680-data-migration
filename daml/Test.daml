@@ -1,0 +1,59 @@
+-- Copyright (c) 2020 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Test where
+
+import Daml.Script
+
+import DA.Assert
+import DA.Optional.Total
+
+import Main
+
+-- this script _assumes_ to run on an open-world ledger (parties just
+-- _exist_, i.e. they are allocated implicitly on their first appearance)
+
+init : Script ()
+init = do
+  alice <- fromSome $ partyFromText "alice"
+  bob <- fromSome $ partyFromText "bob"
+
+  submit alice do createCmd $ WithoutKey alice "first"
+  submit alice do createCmd $ WithoutKey alice "first"
+  submit alice do createCmd $ WithKey alice "first"
+  submit alice do createCmd $ WithKey alice "second"
+
+  submit bob do createCmd $ WithoutKey bob "first"
+  submit bob do createCmd $ WithoutKey bob "first"
+  submit bob do createCmd $ WithKey bob "first"
+  submit bob do createCmd $ WithKey bob "second"
+
+  submit alice do exerciseByKeyCmd @WithKey (alice, "first") WithKeyUse
+  submit alice do exerciseByKeyCmd @WithKey (alice, "first") WithKeyConsume
+
+  pure ()
+
+run : Script ()
+run = do
+  alice <- fromSome $ partyFromText "alice"
+  bob <- fromSome $ partyFromText "bob"
+
+  aliceNoKey <- query @WithoutKey alice
+  assertEq ["first", "first"] (map (\(_, c) -> c.name) aliceNoKey)
+
+  bobNoKey <- query @WithoutKey bob
+  assertEq ["first", "first"] (map (\(_, c) -> c.name) bobNoKey)
+
+  lookupForAlice <- submit alice do createCmd $ LookupWithKey alice
+  aliceFirstExists <- submit alice do exerciseCmd lookupForAlice $ Lookup "first"
+  assert $ not aliceFirstExists
+  aliceSecondExists <- submit alice do exerciseCmd lookupForAlice $ Lookup "second"
+  assert aliceSecondExists
+
+  lookupForBob <- submit bob do createCmd $ LookupWithKey bob
+  bobFirstExists <- submit bob do exerciseCmd lookupForBob $ Lookup "first"
+  assert bobFirstExists
+  bobSecondExists <- submit bob do exerciseCmd lookupForBob $ Lookup "second"
+  assert bobSecondExists
+
+  pure ()

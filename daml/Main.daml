@@ -1,0 +1,94 @@
+-- Copyright (c) 2020 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Main where
+
+import DA.Optional
+
+template WithoutKey
+  with
+    owner: Party
+    name: Text
+  where
+    signatory owner
+
+    nonconsuming choice WithoutKeyUse: ()
+      controller owner
+      do
+        return ()
+
+template WithKey
+  with
+    owner: Party
+    name: Text
+  where
+    signatory owner
+
+    key (owner, name): (Party, Text)
+    maintainer key._1
+
+    nonconsuming choice WithKeyUse: ()
+      controller owner
+      do
+        return ()
+
+    nonconsuming choice WithKeyConsume: ()
+      controller owner
+      do
+        archive self
+        return()
+
+template LookupWithKey
+  with
+    owner: Party
+  where
+    signatory owner
+
+    nonconsuming choice Lookup: Bool
+      with
+        name: Text
+      controller owner
+      do
+        result <- lookupByKey @WithKey (owner, name)
+        return $ isSome result
+  
+
+test = scenario do
+  alice <- getParty "alice"
+  bob <- getParty "bob"
+
+  -- we can freely create many contracts without keys
+  submit alice do create $ WithoutKey alice "no-key-1"
+  submit alice do create $ WithoutKey alice "no-key-2"
+
+  -- we cannot create contracts with the same key
+  submit alice do create $ WithKey alice "key"
+  submitMustFail alice do create $ WithKey alice "key"
+
+  submit bob do create $ WithKey bob "key"
+
+  -- we cannot exercise by key without proper authorization
+  submitMustFail bob do exerciseByKey @WithKey (alice, "key") WithKeyUse
+
+  -- we can exercise a non-consuming choice by key with proper authorization
+  submit alice do exerciseByKey @WithKey (alice, "key") WithKeyUse
+
+  -- the contract has not been consumed
+  submit alice do fetchByKey @WithKey (alice, "key")
+
+  -- we can exercise a consuming choice by key with proper authorization
+  submit alice do exerciseByKey @WithKey (alice, "key") WithKeyConsume
+
+  -- the contract has been consumed
+  submitMustFail alice do fetchByKey @WithKey (alice, "key")
+
+  -- we can now create again a contract with an archived key
+  submit alice do create $ WithKey alice "key"
+
+  -- LookupWithKey can be used to check whether a key is there or not
+  lookup <- submit alice do create $ LookupWithKey alice
+  keyExists <- submit alice do exercise lookup $ Lookup "key"
+  assert keyExists
+  randomExists <- submit alice do exercise lookup $ Lookup "WAH!"
+  assert $ not randomExists
+  
